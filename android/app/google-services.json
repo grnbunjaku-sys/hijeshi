@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "295530556200",
+    "project_id": "hijeshi-13b27",
+    "storage_bucket": "hijeshi-13b27.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:295530556200:android:ede86e80ad8233323fbe1d",
+        "android_client_info": {
+          "package_name": "com.hijeshi.hijeshi"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBRl2_D_1nj-d2X9DeXuJ8VOf1XXCsU0mo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
