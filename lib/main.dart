@@ -34,8 +34,6 @@ Future<void> _navigateFromData(Map<String, dynamic> data) async {
   debugPrint('DEBUG productId: $productId');
 
   if (type == 'collection' && collectionHandle.isNotEmpty) {
-    debugPrint('OPEN COLLECTION: $collectionHandle');
-
     navigatorKey.currentState?.pushAndRemoveUntil(
       MaterialPageRoute(
         builder: (_) => MainScreen(
@@ -50,8 +48,6 @@ Future<void> _navigateFromData(Map<String, dynamic> data) async {
   }
 
   if (type == 'cart') {
-    debugPrint('OPEN CART');
-
     navigatorKey.currentState?.pushAndRemoveUntil(
       MaterialPageRoute(
         builder: (_) => const MainScreen(initialIndex: 3),
@@ -62,8 +58,6 @@ Future<void> _navigateFromData(Map<String, dynamic> data) async {
   }
 
   if (type == 'home') {
-    debugPrint('OPEN HOME');
-
     navigatorKey.currentState?.pushAndRemoveUntil(
       MaterialPageRoute(
         builder: (_) => const MainScreen(initialIndex: 0),
@@ -74,14 +68,11 @@ Future<void> _navigateFromData(Map<String, dynamic> data) async {
   }
 
   if (type == 'product' && productId.isNotEmpty) {
-    debugPrint('OPEN PRODUCT: $productId');
-
     try {
       final shopify = ShopifyService();
       final product = await shopify.fetchProductById(productId);
 
       if (product == null) {
-        debugPrint('Product not found');
         navigatorKey.currentState?.pushAndRemoveUntil(
           MaterialPageRoute(
             builder: (_) => const MainScreen(initialIndex: 1),
@@ -119,8 +110,6 @@ Future<void> _navigateFromData(Map<String, dynamic> data) async {
     return;
   }
 
-  debugPrint('OPEN DEFAULT MAIN SCREEN');
-
   navigatorKey.currentState?.pushAndRemoveUntil(
     MaterialPageRoute(
       builder: (_) => const MainScreen(),
@@ -157,9 +146,13 @@ String _buildNotificationPayload(Map<String, dynamic> data) {
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    debugPrint('Background Firebase init error: $e');
+  }
 
   final String title = message.notification?.title ?? 'Hijeshi';
   final String body = message.notification?.body ?? '';
@@ -191,23 +184,18 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  // Firebase init vetëm për të lejuar app-in të niset.
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    ).timeout(const Duration(seconds: 10));
 
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  } catch (e) {
+    debugPrint('MAIN Firebase init error: $e');
+  }
 
-  await FavoriteService.loadFavorites();
-  await CartService.loadCart();
-  await NotificationService.loadNotifications();
-
-  await LocalNotificationService.init(
-    onTap: _handleLocalNotificationTap,
-  );
-
-  _initialLocalNotificationPayload =
-  await LocalNotificationService.getLaunchPayload();
-
+  // Mos blloko splash me init-e tjera.
   runApp(const MyApp());
 }
 
@@ -221,6 +209,7 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   bool _messagingInitialized = false;
   bool _initialNavigationHandled = false;
+  bool _startupInitialized = false;
 
   final AppLinks _appLinks = AppLinks();
   StreamSubscription<Uri>? _sub;
@@ -229,12 +218,23 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
 
-    _initDeepLinks();
-
+    // Nis app-in menjëherë, init-et bëhen në background.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!_startupInitialized) {
+        _startupInitialized = true;
+        unawaited(_initializeStartupTasks());
+      }
+    });
+  }
+
+  Future<void> _initializeStartupTasks() async {
+    try {
+      await _safeLoadAppData();
+      await _initDeepLinks();
+
       if (!_messagingInitialized) {
         _messagingInitialized = true;
-        unawaited(setupFirebaseMessaging());
+        await setupFirebaseMessaging();
       }
 
       if (!_initialNavigationHandled) {
@@ -247,12 +247,54 @@ class _MyAppState extends State<MyApp> {
           await _handleLocalNotificationTap(payload);
         }
       }
-    });
+    } catch (e) {
+      debugPrint('Startup init error: $e');
+    }
+  }
+
+  Future<void> _safeLoadAppData() async {
+    try {
+      await FavoriteService.loadFavorites().timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('FavoriteService.loadFavorites ERROR: $e');
+    }
+
+    try {
+      await CartService.loadCart().timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('CartService.loadCart ERROR: $e');
+    }
+
+    try {
+      await NotificationService.loadNotifications()
+          .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('NotificationService.loadNotifications ERROR: $e');
+    }
+
+    try {
+      await LocalNotificationService.init(
+        onTap: _handleLocalNotificationTap,
+      ).timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('LocalNotificationService.init ERROR: $e');
+    }
+
+    try {
+      _initialLocalNotificationPayload =
+      await LocalNotificationService.getLaunchPayload()
+          .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('LocalNotificationService.getLaunchPayload ERROR: $e');
+      _initialLocalNotificationPayload = null;
+    }
   }
 
   Future<void> _initDeepLinks() async {
     try {
-      final Uri? initialUri = await _appLinks.getInitialLink();
+      final Uri? initialUri =
+      await _appLinks.getInitialLink().timeout(const Duration(seconds: 5));
+
       if (initialUri != null) {
         await _handleIncomingUri(initialUri);
       }
@@ -277,8 +319,7 @@ class _MyAppState extends State<MyApp> {
             uri.path == '/app-reset-password';
 
     final bool isCustomSchemeReset =
-        uri.scheme == 'hijeshi' &&
-            uri.host == 'reset-password';
+        uri.scheme == 'hijeshi' && uri.host == 'reset-password';
 
     if (isHttpsReset || isCustomSchemeReset) {
       final String token = uri.queryParameters['token'] ?? '';
@@ -312,7 +353,8 @@ class _MyAppState extends State<MyApp> {
 
       debugPrint('Leje e dhënë: ${settings.authorizationStatus}');
 
-      final String? token = await messaging.getToken();
+      final String? token =
+      await messaging.getToken().timeout(const Duration(seconds: 10));
       debugPrint('FCM Token: $token');
 
       unawaited(NotificationService.syncTokenForLoggedInUser());
@@ -368,7 +410,11 @@ class _MyAppState extends State<MyApp> {
         await _navigateFromData(data);
       });
 
-      final RemoteMessage? initialMessage = await messaging.getInitialMessage();
+      final RemoteMessage? initialMessage =
+      await messaging.getInitialMessage().timeout(
+        const Duration(seconds: 5),
+      );
+
       if (initialMessage != null) {
         debugPrint(
           'Terminated->Opened: ${initialMessage.notification?.title} - ${initialMessage.notification?.body}',
