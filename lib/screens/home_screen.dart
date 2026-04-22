@@ -696,54 +696,133 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 28),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 76,
-              height: 76,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.06),
-                    blurRadius: 16,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
+    return SliverFillRemaining(
+      hasScrollBody: false,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 76,
+                height: 76,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.06),
+                      blurRadius: 16,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.search_off_rounded,
+                  size: 34,
+                  color: Colors.black54,
+                ),
               ),
-              child: const Icon(
-                Icons.search_off_rounded,
-                size: 34,
-                color: Colors.black54,
+              const SizedBox(height: 18),
+              const Text(
+                'No products found',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              'No products found',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
+              const SizedBox(height: 8),
+              Text(
+                'Try another keyword or change the selected filters.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey.shade700,
+                  height: 1.5,
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Try another keyword or change the selected filters.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade700,
-                height: 1.5,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  List<Widget> _buildHeaderSlivers(String currentHandle) {
+    return [
+      SliverToBoxAdapter(
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          decoration: const BoxDecoration(
+            color: Color(0xFFF7F4F8),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.title ?? 'Shop',
+                style: const TextStyle(
+                  fontSize: 30,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.5,
+                  color: Colors.black,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '${filteredProducts.length} products available',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey.shade700,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      SliverToBoxAdapter(
+        child: _buildSearchAndSortCard(),
+      ),
+      SliverToBoxAdapter(
+        child: SizedBox(
+          height: 64,
+          child: isLoadingCollections
+              ? const Center(
+            child: SizedBox(
+              height: 22,
+              width: 22,
+              child: CircularProgressIndicator(strokeWidth: 2.2),
+            ),
+          )
+              : ListView.separated(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 8,
+            ),
+            scrollDirection: Axis.horizontal,
+            itemCount: collections.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              final collection = collections[index];
+              final handle = collection['handle'] ?? '';
+              final title = collection['title'] ?? '';
+              final isSelected = currentHandle == handle;
+
+              return _buildCollectionChip(
+                title: title,
+                isSelected: isSelected,
+                onTap: () => _openCollection(collection),
+              );
+            },
+          ),
+        ),
+      ),
+      const SliverToBoxAdapter(
+        child: SizedBox(height: 4),
+      ),
+    ];
   }
 
   @override
@@ -753,104 +832,47 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF7F4F8),
       body: SafeArea(
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              decoration: const BoxDecoration(
-                color: Color(0xFFF7F4F8),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.title ?? 'Shop',
-                    style: const TextStyle(
-                      fontSize: 30,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.5,
-                      color: Colors.black,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '${filteredProducts.length} products available',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade700,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            _buildSearchAndSortCard(),
-            SizedBox(
-              height: 64,
-              child: isLoadingCollections
-                  ? const Center(
-                child: SizedBox(
-                  height: 22,
-                  width: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2.2),
-                ),
-              )
-                  : ListView.separated(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                scrollDirection: Axis.horizontal,
-                itemCount: collections.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                itemBuilder: (context, index) {
-                  final collection = collections[index];
-                  final handle = collection['handle'] ?? '';
-                  final title = collection['title'] ?? '';
-                  final isSelected = currentHandle == handle;
-
-                  return _buildCollectionChip(
-                    title: title,
-                    isSelected: isSelected,
-                    onTap: () => _openCollection(collection),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 4),
-            Expanded(
-              child: isLoading
-                  ? const Center(
-                child: CircularProgressIndicator(),
-              )
-                  : filteredProducts.isEmpty
-                  ? _buildEmptyState()
-                  : RefreshIndicator(
-                onRefresh: () async {
-                  await _loadCollections();
-                  await _loadProducts();
-                },
-                child: GridView.builder(
+        child: isLoading
+            ? const Center(
+          child: CircularProgressIndicator(),
+        )
+            : RefreshIndicator(
+          onRefresh: () async {
+            await _loadCollections();
+            await _loadProducts();
+          },
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              ..._buildHeaderSlivers(currentHandle),
+              if (filteredProducts.isEmpty)
+                _buildEmptyState()
+              else
+                SliverPadding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                  itemCount: filteredProducts.length,
-                  gridDelegate:
-                  const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 14,
-                    mainAxisSpacing: 14,
-                    childAspectRatio: 0.61,
-                  ),
-                  itemBuilder: (context, index) {
-                    final edge =
-                    filteredProducts[index] as Map<String, dynamic>;
-                    final product = edge['node'] as Map<String, dynamic>;
+                  sliver: SliverGrid(
+                    delegate: SliverChildBuilderDelegate(
+                          (context, index) {
+                        final edge = filteredProducts[index]
+                        as Map<String, dynamic>;
+                        final product =
+                        edge['node'] as Map<String, dynamic>;
 
-                    return _buildProductCard(product);
-                  },
+                        return _buildProductCard(product);
+                      },
+                      childCount: filteredProducts.length,
+                    ),
+                    gridDelegate:
+                    const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      crossAxisSpacing: 14,
+                      mainAxisSpacing: 14,
+                      childAspectRatio: 0.61,
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
