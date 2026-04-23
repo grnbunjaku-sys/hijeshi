@@ -86,12 +86,10 @@ class _LoginScreenState extends State<LoginScreen> {
           ? user!['name'].toString().trim()
           : email.split('@')[0];
 
-      final fcmToken = await FirebaseMessaging.instance.getToken();
-
       await UserService.saveUser(
         name: userName,
         email: email,
-        fcmToken: fcmToken,
+        fcmToken: null,
       );
 
       if (!mounted) return;
