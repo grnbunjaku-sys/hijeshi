@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
@@ -86,11 +85,15 @@ class _LoginScreenState extends State<LoginScreen> {
           ? user!['name'].toString().trim()
           : email.split('@')[0];
 
-      await UserService.saveUser(
-        name: userName,
-        email: email,
-        fcmToken: null,
-      );
+      try {
+        await UserService.saveUser(
+          name: userName,
+          email: email,
+          fcmToken: null,
+        );
+      } catch (e) {
+        debugPrint('Firestore saveUser error: $e');
+      }
 
       if (!mounted) return;
 
