@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
-import '../services/user_service.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -104,14 +102,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
         );
         return;
       }
-
-      final fcmToken = await FirebaseMessaging.instance.getToken();
-
-      await UserService.saveUser(
-        name: name,
-        email: email,
-        fcmToken: fcmToken,
-      );
 
       if (!mounted) return;
 

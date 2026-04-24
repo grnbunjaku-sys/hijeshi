@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
-import '../services/user_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -77,22 +76,6 @@ class _LoginScreenState extends State<LoginScreen> {
         if (!mounted) return;
         _showSnackBar(response['message'] ?? 'Login failed');
         return;
-      }
-
-      final user = response['user'] as Map<String, dynamic>?;
-      final userName =
-      (user?['name']?.toString().trim().isNotEmpty ?? false)
-          ? user!['name'].toString().trim()
-          : email.split('@')[0];
-
-      try {
-        await UserService.saveUser(
-          name: userName,
-          email: email,
-          fcmToken: null,
-        );
-      } catch (e) {
-        debugPrint('Firestore saveUser error: $e');
       }
 
       if (!mounted) return;
