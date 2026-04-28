@@ -22,11 +22,14 @@ String? _initialLocalNotificationPayload;
 Future<void> _navigateFromData(Map<String, dynamic> data) async {
   debugPrint('DEBUG data: $data');
 
-  final String type = (data['type'] ?? '').toString();
-  final String collectionHandle = (data['collectionHandle'] ?? '').toString();
+  final String type = (data['type'] ?? '').toString().trim();
+  final String collectionHandle =
+  (data['collectionHandle'] ?? '').toString().trim();
   final String collectionTitle =
-  (data['title'] ?? data['collectionTitle'] ?? 'Collection').toString();
-  final String productId = (data['productId'] ?? '').toString();
+  (data['title'] ?? data['collectionTitle'] ?? 'Collection')
+      .toString()
+      .trim();
+  final String productId = (data['productId'] ?? '').toString().trim();
 
   debugPrint('DEBUG type: $type');
   debugPrint('DEBUG collectionHandle: $collectionHandle');
@@ -34,16 +37,69 @@ Future<void> _navigateFromData(Map<String, dynamic> data) async {
   debugPrint('DEBUG productId: $productId');
 
   if (type == 'collection' && collectionHandle.isNotEmpty) {
+    debugPrint('OPEN COLLECTION: $collectionHandle');
+
     navigatorKey.currentState?.pushAndRemoveUntil(
       MaterialPageRoute(
         builder: (_) => MainScreen(
           initialIndex: 1,
-          shopTitle: collectionTitle,
+          shopTitle: collectionTitle.isNotEmpty ? collectionTitle : 'Collection',
           shopCollectionHandle: collectionHandle,
         ),
       ),
           (route) => false,
     );
+    return;
+  }
+
+  if (type == 'product' && productId.isNotEmpty) {
+    debugPrint('OPEN PRODUCT START: $productId');
+
+    try {
+      final shopify = ShopifyService();
+      final product = await shopify.fetchProductById(productId);
+
+      debugPrint('OPEN PRODUCT RESULT: ${product?['title']}');
+
+      if (product == null) {
+        debugPrint('OPEN PRODUCT NULL - Shopify did not return product');
+
+        navigatorKey.currentState?.pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (_) => const MainScreen(initialIndex: 1),
+          ),
+              (route) => false,
+        );
+        return;
+      }
+
+      navigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (_) => const MainScreen(initialIndex: 1),
+        ),
+            (route) => false,
+      );
+
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      navigatorKey.currentState?.push(
+        MaterialPageRoute(
+          builder: (_) => ProductDetailsScreen(product: product),
+        ),
+      );
+
+      debugPrint('OPEN PRODUCT SCREEN PUSHED');
+    } catch (e) {
+      debugPrint('OPEN PRODUCT ERROR: $e');
+
+      navigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (_) => const MainScreen(initialIndex: 1),
+        ),
+            (route) => false,
+      );
+    }
+
     return;
   }
 
@@ -67,48 +123,7 @@ Future<void> _navigateFromData(Map<String, dynamic> data) async {
     return;
   }
 
-  if (type == 'product' && productId.isNotEmpty) {
-    try {
-      final shopify = ShopifyService();
-      final product = await shopify.fetchProductById(productId);
-
-      if (product == null) {
-        navigatorKey.currentState?.pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (_) => const MainScreen(initialIndex: 1),
-          ),
-              (route) => false,
-        );
-        return;
-      }
-
-      navigatorKey.currentState?.pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (_) => const MainScreen(initialIndex: 1),
-        ),
-            (route) => false,
-      );
-
-      await Future.delayed(const Duration(milliseconds: 300));
-
-      navigatorKey.currentState?.push(
-        MaterialPageRoute(
-          builder: (_) => ProductDetailsScreen(product: product),
-        ),
-      );
-    } catch (e) {
-      debugPrint('OPEN PRODUCT ERROR: $e');
-
-      navigatorKey.currentState?.pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (_) => const MainScreen(initialIndex: 1),
-        ),
-            (route) => false,
-      );
-    }
-
-    return;
-  }
+  debugPrint('UNKNOWN NOTIFICATION TYPE - fallback home');
 
   navigatorKey.currentState?.pushAndRemoveUntil(
     MaterialPageRoute(
@@ -184,7 +199,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Firebase init vetëm për të lejuar app-in të niset.
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -195,7 +209,6 @@ Future<void> main() async {
     debugPrint('MAIN Firebase init error: $e');
   }
 
-  // Mos blloko splash me init-e tjera.
   runApp(const MyApp());
 }
 
@@ -218,7 +231,6 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
 
-    // Nis app-in menjëherë, init-et bëhen në background.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!_startupInitialized) {
         _startupInitialized = true;

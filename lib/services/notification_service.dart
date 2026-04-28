@@ -55,19 +55,27 @@ class NotificationService {
   }
 
   static Future<void> syncTokenForLoggedInUser() async {
-    final bool isLoggedIn = await AuthService.isLoggedIn();
-    if (!isLoggedIn) return;
+    try {
+      final bool isLoggedIn = await AuthService.isLoggedIn();
+      if (!isLoggedIn) return;
 
-    final String? email = await AuthService.getUserEmail();
-    if (email == null || email.isEmpty) return;
+      final String? email = await AuthService.getUserEmail();
+      if (email == null || email.isEmpty) return;
 
-    final String? token = await FirebaseMessaging.instance.getToken();
-    if (token == null || token.isEmpty) return;
+      final String? token = await FirebaseMessaging.instance.getToken();
+      if (token == null || token.isEmpty) return;
 
-    await UserService.updateFcmToken(
-      email: email,
-      fcmToken: token,
-    );
+      try {
+        await UserService.updateFcmToken(
+          email: email,
+          fcmToken: token,
+        );
+      } catch (e) {
+        debugPrint('Firestore updateFcmToken error: $e');
+      }
+    } catch (e) {
+      debugPrint('syncTokenForLoggedInUser error: $e');
+    }
   }
 
   static Future<void> addNotification({
