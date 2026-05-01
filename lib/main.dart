@@ -326,6 +326,25 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
+  void _showIosTokenDebug({
+    required String? apnsToken,
+    required String? fcmToken,
+  }) {
+    if (!Platform.isIOS) return;
+
+    final BuildContext? context = navigatorKey.currentContext;
+    if (context == null) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 12),
+        content: Text(
+          'APNs: ${apnsToken == null ? "NULL" : "OK"} | FCM: ${fcmToken == null ? "NULL" : "OK"}',
+        ),
+      ),
+    );
+  }
+
   Future<void> setupFirebaseMessaging() async {
     try {
       final FirebaseMessaging messaging = FirebaseMessaging.instance;
@@ -345,8 +364,10 @@ class _MyAppState extends State<MyApp> {
         sound: true,
       );
 
+      String? apnsToken;
+
       if (Platform.isIOS) {
-        String? apnsToken = await messaging.getAPNSToken();
+        apnsToken = await messaging.getAPNSToken();
         debugPrint('APNs Token FIRST: $apnsToken');
 
         if (apnsToken == null) {
@@ -359,6 +380,14 @@ class _MyAppState extends State<MyApp> {
       final String? token =
       await messaging.getToken().timeout(const Duration(seconds: 10));
       debugPrint('FCM Token: $token');
+
+      if (Platform.isIOS) {
+        await Future.delayed(const Duration(milliseconds: 700));
+        _showIosTokenDebug(
+          apnsToken: apnsToken,
+          fcmToken: token,
+        );
+      }
 
       unawaited(NotificationService.syncTokenForLoggedInUser());
       unawaited(messaging.subscribeToTopic('all'));
