@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:app_links/app_links.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -31,14 +32,7 @@ Future<void> _navigateFromData(Map<String, dynamic> data) async {
       .trim();
   final String productId = (data['productId'] ?? '').toString().trim();
 
-  debugPrint('DEBUG type: $type');
-  debugPrint('DEBUG collectionHandle: $collectionHandle');
-  debugPrint('DEBUG collectionTitle: $collectionTitle');
-  debugPrint('DEBUG productId: $productId');
-
   if (type == 'collection' && collectionHandle.isNotEmpty) {
-    debugPrint('OPEN COLLECTION: $collectionHandle');
-
     navigatorKey.currentState?.pushAndRemoveUntil(
       MaterialPageRoute(
         builder: (_) => MainScreen(
@@ -53,17 +47,11 @@ Future<void> _navigateFromData(Map<String, dynamic> data) async {
   }
 
   if (type == 'product' && productId.isNotEmpty) {
-    debugPrint('OPEN PRODUCT START: $productId');
-
     try {
       final shopify = ShopifyService();
       final product = await shopify.fetchProductById(productId);
 
-      debugPrint('OPEN PRODUCT RESULT: ${product?['title']}');
-
       if (product == null) {
-        debugPrint('OPEN PRODUCT NULL - Shopify did not return product');
-
         navigatorKey.currentState?.pushAndRemoveUntil(
           MaterialPageRoute(
             builder: (_) => const MainScreen(initialIndex: 1),
@@ -87,8 +75,6 @@ Future<void> _navigateFromData(Map<String, dynamic> data) async {
           builder: (_) => ProductDetailsScreen(product: product),
         ),
       );
-
-      debugPrint('OPEN PRODUCT SCREEN PUSHED');
     } catch (e) {
       debugPrint('OPEN PRODUCT ERROR: $e');
 
@@ -122,8 +108,6 @@ Future<void> _navigateFromData(Map<String, dynamic> data) async {
     );
     return;
   }
-
-  debugPrint('UNKNOWN NOTIFICATION TYPE - fallback home');
 
   navigatorKey.currentState?.pushAndRemoveUntil(
     MaterialPageRoute(
@@ -172,9 +156,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   final String title = message.notification?.title ?? 'Hijeshi';
   final String body = message.notification?.body ?? '';
   final Map<String, dynamic> data = Map<String, dynamic>.from(message.data);
-
-  debugPrint('Mesazh në background: $title');
-  debugPrint('Background data: $data');
 
   if ((data['title'] ?? '').toString().isEmpty) {
     data['title'] = title;
@@ -226,6 +207,7 @@ class _MyAppState extends State<MyApp> {
 
   final AppLinks _appLinks = AppLinks();
   StreamSubscription<Uri>? _sub;
+  StreamSubscription<String>? _tokenRefreshSub;
 
   @override
   void initState() {
@@ -321,14 +303,10 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _handleIncomingUri(Uri uri) async {
     debugPrint('DEEP LINK URI: $uri');
-    debugPrint('DEEP LINK SCHEME: ${uri.scheme}');
-    debugPrint('DEEP LINK HOST: ${uri.host}');
-    debugPrint('DEEP LINK PATH: ${uri.path}');
 
-    final bool isHttpsReset =
-        uri.scheme == 'https' &&
-            uri.host == 'api.hijeshicosmetics.com' &&
-            uri.path == '/app-reset-password';
+    final bool isHttpsReset = uri.scheme == 'https' &&
+        uri.host == 'api.hijeshicosmetics.com' &&
+        uri.path == '/app-reset-password';
 
     final bool isCustomSchemeReset =
         uri.scheme == 'hijeshi' && uri.host == 'reset-password';
@@ -336,9 +314,6 @@ class _MyAppState extends State<MyApp> {
     if (isHttpsReset || isCustomSchemeReset) {
       final String token = uri.queryParameters['token'] ?? '';
       final String email = uri.queryParameters['email'] ?? '';
-
-      debugPrint('RESET TOKEN: $token');
-      debugPrint('RESET EMAIL: $email');
 
       navigatorKey.currentState?.push(
         MaterialPageRoute(
@@ -348,8 +323,6 @@ class _MyAppState extends State<MyApp> {
           ),
         ),
       );
-
-      return;
     }
   }
 
@@ -361,9 +334,27 @@ class _MyAppState extends State<MyApp> {
         alert: true,
         badge: true,
         sound: true,
+        provisional: false,
       );
 
       debugPrint('Leje e dhënë: ${settings.authorizationStatus}');
+
+      await messaging.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
+      if (Platform.isIOS) {
+        String? apnsToken = await messaging.getAPNSToken();
+        debugPrint('APNs Token FIRST: $apnsToken');
+
+        if (apnsToken == null) {
+          await Future.delayed(const Duration(seconds: 2));
+          apnsToken = await messaging.getAPNSToken();
+          debugPrint('APNs Token SECOND: $apnsToken');
+        }
+      }
 
       final String? token =
       await messaging.getToken().timeout(const Duration(seconds: 10));
@@ -371,6 +362,11 @@ class _MyAppState extends State<MyApp> {
 
       unawaited(NotificationService.syncTokenForLoggedInUser());
       unawaited(messaging.subscribeToTopic('all'));
+
+      _tokenRefreshSub = messaging.onTokenRefresh.listen((String newToken) {
+        debugPrint('FCM Token refreshed: $newToken');
+        unawaited(NotificationService.syncTokenForLoggedInUser());
+      });
 
       FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
         final String title = message.notification?.title ?? 'Hijeshi';
@@ -456,6 +452,7 @@ class _MyAppState extends State<MyApp> {
   @override
   void dispose() {
     _sub?.cancel();
+    _tokenRefreshSub?.cancel();
     super.dispose();
   }
 
