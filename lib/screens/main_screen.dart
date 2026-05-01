@@ -34,9 +34,32 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+
     _selectedIndex = widget.initialIndex;
     _shopTitle = widget.shopTitle;
     _shopCollectionHandle = widget.shopCollectionHandle;
+
+    // ✅ FIX: mos e thirr direkt në initState nëse përdor context/Firebase
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      setupFirebaseMessaging();
+    });
+  }
+
+  // 🔥 KJO ËSHTË ZGJIDHJA QË MUNGONTE
+  void setupFirebaseMessaging() async {
+    try {
+      // nëse ke service të ndërtuar:
+      await NotificationService.loadNotifications();
+      await NotificationService.syncTokenForLoggedInUser();
+
+      // opsionale: listener për messages
+      // FirebaseMessaging.onMessage.listen((message) {
+      //   NotificationService.incrementUnread();
+      // });
+
+    } catch (e) {
+      debugPrint("Firebase Messaging error: $e");
+    }
   }
 
   @override
