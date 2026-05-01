@@ -332,17 +332,27 @@ class _MyAppState extends State<MyApp> {
   }) {
     if (!Platform.isIOS) return;
 
-    final BuildContext? context = navigatorKey.currentContext;
-    if (context == null) return;
+    Future.delayed(const Duration(seconds: 3), () {
+      final BuildContext? context = navigatorKey.currentContext;
+      if (context == null) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        duration: const Duration(seconds: 12),
-        content: Text(
-          'APNs: ${apnsToken == null ? "NULL" : "OK"} | FCM: ${fcmToken == null ? "NULL" : "OK"}',
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('iOS Push Debug'),
+          content: Text(
+            'APNs: ${apnsToken == null ? "NULL" : "OK"}\n'
+                'FCM: ${fcmToken == null ? "NULL" : "OK"}',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
         ),
-      ),
-    );
+      );
+    });
   }
 
   Future<void> setupFirebaseMessaging() async {
@@ -382,7 +392,6 @@ class _MyAppState extends State<MyApp> {
       debugPrint('FCM Token: $token');
 
       if (Platform.isIOS) {
-        await Future.delayed(const Duration(milliseconds: 700));
         _showIosTokenDebug(
           apnsToken: apnsToken,
           fcmToken: token,
