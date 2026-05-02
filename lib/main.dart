@@ -19,6 +19,8 @@ import 'services/shopify_service.dart';
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 String? _initialLocalNotificationPayload;
+final ValueNotifier<String> iosPushDebugNotifier =
+ValueNotifier<String>('iOS Push: initializing...');
 
 Future<void> _navigateFromData(Map<String, dynamic> data) async {
   debugPrint('DEBUG data: $data');
@@ -53,18 +55,14 @@ Future<void> _navigateFromData(Map<String, dynamic> data) async {
 
       if (product == null) {
         navigatorKey.currentState?.pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (_) => const MainScreen(initialIndex: 1),
-          ),
+          MaterialPageRoute(builder: (_) => const MainScreen(initialIndex: 1)),
               (route) => false,
         );
         return;
       }
 
       navigatorKey.currentState?.pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (_) => const MainScreen(initialIndex: 1),
-        ),
+        MaterialPageRoute(builder: (_) => const MainScreen(initialIndex: 1)),
             (route) => false,
       );
 
@@ -79,9 +77,7 @@ Future<void> _navigateFromData(Map<String, dynamic> data) async {
       debugPrint('OPEN PRODUCT ERROR: $e');
 
       navigatorKey.currentState?.pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (_) => const MainScreen(initialIndex: 1),
-        ),
+        MaterialPageRoute(builder: (_) => const MainScreen(initialIndex: 1)),
             (route) => false,
       );
     }
@@ -91,9 +87,7 @@ Future<void> _navigateFromData(Map<String, dynamic> data) async {
 
   if (type == 'cart') {
     navigatorKey.currentState?.pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (_) => const MainScreen(initialIndex: 3),
-      ),
+      MaterialPageRoute(builder: (_) => const MainScreen(initialIndex: 3)),
           (route) => false,
     );
     return;
@@ -101,18 +95,14 @@ Future<void> _navigateFromData(Map<String, dynamic> data) async {
 
   if (type == 'home') {
     navigatorKey.currentState?.pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (_) => const MainScreen(initialIndex: 0),
-      ),
+      MaterialPageRoute(builder: (_) => const MainScreen(initialIndex: 0)),
           (route) => false,
     );
     return;
   }
 
   navigatorKey.currentState?.pushAndRemoveUntil(
-    MaterialPageRoute(
-      builder: (_) => const MainScreen(),
-    ),
+    MaterialPageRoute(builder: (_) => const MainScreen()),
         (route) => false,
   );
 }
@@ -188,6 +178,7 @@ Future<void> main() async {
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   } catch (e) {
     debugPrint('MAIN Firebase init error: $e');
+    iosPushDebugNotifier.value = 'Firebase init error: $e';
   }
 
   runApp(const MyApp());
@@ -212,19 +203,6 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
-
-    // DEBUG TEST: nëse ky del në iPhone, build-i i ri është instaluar saktë.
-    Future.delayed(const Duration(seconds: 4), () {
-      if (!mounted) return;
-
-      showDialog(
-        context: context,
-        builder: (_) => const AlertDialog(
-          title: Text('Debug Test'),
-          content: Text('Ky është build i ri në iPhone'),
-        ),
-      );
-    });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!_startupInitialized) {
@@ -256,6 +234,7 @@ class _MyAppState extends State<MyApp> {
       }
     } catch (e) {
       debugPrint('Startup init error: $e');
+      iosPushDebugNotifier.value = 'Startup error: $e';
     }
   }
 
@@ -339,37 +318,11 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
-  void _showIosTokenDebug({
-    required String? apnsToken,
-    required String? fcmToken,
-  }) {
-    if (!Platform.isIOS) return;
-
-    Future.delayed(const Duration(seconds: 7), () {
-      if (!mounted) return;
-
-      showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('iOS Push Debug'),
-          content: Text(
-            'APNs: ${apnsToken == null ? "NULL" : "OK"}\n'
-                'FCM: ${fcmToken == null ? "NULL" : "OK"}',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-    });
-  }
-
   Future<void> setupFirebaseMessaging() async {
     try {
       final FirebaseMessaging messaging = FirebaseMessaging.instance;
+
+      iosPushDebugNotifier.value = 'iOS Push: requesting permission...';
 
       final NotificationSettings settings = await messaging.requestPermission(
         alert: true,
@@ -389,6 +342,8 @@ class _MyAppState extends State<MyApp> {
       String? apnsToken;
 
       if (Platform.isIOS) {
+        iosPushDebugNotifier.value = 'iOS Push: checking APNs...';
+
         apnsToken = await messaging.getAPNSToken();
         debugPrint('APNs Token FIRST: $apnsToken');
 
@@ -404,10 +359,8 @@ class _MyAppState extends State<MyApp> {
       debugPrint('FCM Token: $token');
 
       if (Platform.isIOS) {
-        _showIosTokenDebug(
-          apnsToken: apnsToken,
-          fcmToken: token,
-        );
+        iosPushDebugNotifier.value =
+        'iOS Push: APNs ${apnsToken == null ? "NULL" : "OK"} | FCM ${token == null ? "NULL" : "OK"}';
       }
 
       unawaited(NotificationService.syncTokenForLoggedInUser());
@@ -496,6 +449,7 @@ class _MyAppState extends State<MyApp> {
       }
     } catch (e) {
       debugPrint('setupFirebaseMessaging ERROR: $e');
+      iosPushDebugNotifier.value = 'iOS Push ERROR: $e';
     }
   }
 
@@ -524,68 +478,49 @@ class _MyAppState extends State<MyApp> {
           primary: Colors.black,
           surface: backgroundColor,
         ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: backgroundColor,
-          surfaceTintColor: backgroundColor,
-          foregroundColor: Colors.black,
-          elevation: 0,
-          centerTitle: true,
-          titleTextStyle: TextStyle(
-            color: Colors.black,
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        snackBarTheme: SnackBarThemeData(
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: Colors.black,
-          contentTextStyle: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w600,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: const Color(0xFFF4F5F7),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide.none,
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide.none,
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: const BorderSide(color: Colors.black12),
-          ),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.black,
-            foregroundColor: Colors.white,
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-            ),
-          ),
-        ),
-        outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.black,
-            side: const BorderSide(color: Colors.black12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-            ),
-          ),
-        ),
-        progressIndicatorTheme: const ProgressIndicatorThemeData(
-          color: Colors.black,
-        ),
       ),
+      builder: (context, child) {
+        return Stack(
+          children: [
+            child ?? const SizedBox.shrink(),
+            if (Platform.isIOS)
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: 28,
+                child: SafeArea(
+                  child: ValueListenableBuilder<String>(
+                    valueListenable: iosPushDebugNotifier,
+                    builder: (context, text, _) {
+                      return Material(
+                        color: Colors.transparent,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.86),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Text(
+                            text,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
       home: const MainScreen(),
     );
   }
