@@ -213,6 +213,19 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
 
+    // DEBUG TEST: nëse ky del në iPhone, build-i i ri është instaluar saktë.
+    Future.delayed(const Duration(seconds: 4), () {
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (_) => const AlertDialog(
+          title: Text('Debug Test'),
+          content: Text('Ky është build i ri në iPhone'),
+        ),
+      );
+    });
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!_startupInitialized) {
         _startupInitialized = true;
@@ -332,9 +345,8 @@ class _MyAppState extends State<MyApp> {
   }) {
     if (!Platform.isIOS) return;
 
-    Future.delayed(const Duration(seconds: 3), () {
-      final BuildContext? context = navigatorKey.currentContext;
-      if (context == null) return;
+    Future.delayed(const Duration(seconds: 7), () {
+      if (!mounted) return;
 
       showDialog(
         context: context,
