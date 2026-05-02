@@ -220,7 +220,6 @@ class _MyAppState extends State<MyApp> {
       if (!_messagingInitialized) {
         _messagingInitialized = true;
 
-        // iOS ka nevojë pak delay që UI/system push service të jetë gati.
         Future.delayed(const Duration(seconds: 2), () async {
           await setupFirebaseMessaging();
         });
@@ -383,12 +382,27 @@ class _MyAppState extends State<MyApp> {
         'iOS Push: APNs ${apnsToken == null ? "NULL" : "OK"} | FCM ${token == null ? "NULL" : "OK"}';
       }
 
+      try {
+        await messaging.subscribeToTopic('all');
+        debugPrint('Subscribed to topic all');
+
+        if (Platform.isIOS) {
+          iosPushDebugNotifier.value =
+          'iOS Push: APNs OK | FCM OK | TOPIC OK';
+        }
+      } catch (e) {
+        debugPrint('Subscribe topic error: $e');
+
+        if (Platform.isIOS) {
+          iosPushDebugNotifier.value = 'iOS Push: topic error $e';
+        }
+      }
+
       unawaited(NotificationService.syncTokenForLoggedInUser());
-      unawaited(messaging.subscribeToTopic('all'));
 
       _tokenRefreshSub = messaging.onTokenRefresh.listen((String newToken) {
         debugPrint('FCM Token refreshed: $newToken');
-        unawaited(NotificationService.syncTokenForLoggedInUser());
+            unawaited(NotificationService.syncTokenForLoggedInUser());
       });
 
       FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
