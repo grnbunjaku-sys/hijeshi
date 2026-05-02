@@ -219,7 +219,11 @@ class _MyAppState extends State<MyApp> {
 
       if (!_messagingInitialized) {
         _messagingInitialized = true;
-        await setupFirebaseMessaging();
+
+        // iOS ka nevojë pak delay që UI/system push service të jetë gati.
+        Future.delayed(const Duration(seconds: 2), () async {
+          await setupFirebaseMessaging();
+        });
       }
 
       if (!_initialNavigationHandled) {
@@ -318,6 +322,24 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
+  Future<String?> _waitForApnsToken(FirebaseMessaging messaging) async {
+    String? apnsToken;
+
+    for (int i = 1; i <= 10; i++) {
+      apnsToken = await messaging.getAPNSToken();
+      debugPrint('APNs Token attempt $i: $apnsToken');
+
+      if (apnsToken != null && apnsToken.isNotEmpty) {
+        return apnsToken;
+      }
+
+      iosPushDebugNotifier.value = 'iOS Push: waiting APNs... $i/10';
+      await Future.delayed(const Duration(seconds: 1));
+    }
+
+    return null;
+  }
+
   Future<void> setupFirebaseMessaging() async {
     try {
       final FirebaseMessaging messaging = FirebaseMessaging.instance;
@@ -343,14 +365,12 @@ class _MyAppState extends State<MyApp> {
 
       if (Platform.isIOS) {
         iosPushDebugNotifier.value = 'iOS Push: checking APNs...';
+        apnsToken = await _waitForApnsToken(messaging);
 
-        apnsToken = await messaging.getAPNSToken();
-        debugPrint('APNs Token FIRST: $apnsToken');
-
-        if (apnsToken == null) {
-          await Future.delayed(const Duration(seconds: 2));
-          apnsToken = await messaging.getAPNSToken();
-          debugPrint('APNs Token SECOND: $apnsToken');
+        if (apnsToken == null || apnsToken.isEmpty) {
+          iosPushDebugNotifier.value =
+          'iOS Push: APNs NULL | FCM not requested yet';
+          return;
         }
       }
 
