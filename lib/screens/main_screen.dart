@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
-import 'landing_screen.dart';
-import 'home_screen.dart';
-import 'cart_screen.dart';
-import 'favorites_screen.dart';
-import 'profile_screen.dart';
+
 import '../services/cart_service.dart';
 import '../services/notification_service.dart';
+import 'cart_screen.dart';
+import 'favorites_screen.dart';
+import 'home_screen.dart';
+import 'landing_screen.dart';
 import 'notification_screen.dart';
+import 'profile_screen.dart';
 
 class MainScreen extends StatefulWidget {
   final int initialIndex;
@@ -38,28 +39,6 @@ class _MainScreenState extends State<MainScreen> {
     _selectedIndex = widget.initialIndex;
     _shopTitle = widget.shopTitle;
     _shopCollectionHandle = widget.shopCollectionHandle;
-
-    // ✅ FIX: mos e thirr direkt në initState nëse përdor context/Firebase
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      setupFirebaseMessaging();
-    });
-  }
-
-  // 🔥 KJO ËSHTË ZGJIDHJA QË MUNGONTE
-  void setupFirebaseMessaging() async {
-    try {
-      // nëse ke service të ndërtuar:
-      await NotificationService.loadNotifications();
-      await NotificationService.syncTokenForLoggedInUser();
-
-      // opsionale: listener për messages
-      // FirebaseMessaging.onMessage.listen((message) {
-      //   NotificationService.incrementUnread();
-      // });
-
-    } catch (e) {
-      debugPrint("Firebase Messaging error: $e");
-    }
   }
 
   @override

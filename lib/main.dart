@@ -19,8 +19,54 @@ import 'services/shopify_service.dart';
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 String? _initialLocalNotificationPayload;
+
 final ValueNotifier<String> iosPushDebugNotifier =
 ValueNotifier<String>('iOS Push: initializing...');
+
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    debugPrint('Background Firebase init error: $e');
+  }
+
+  final String title = message.notification?.title ?? 'Hijeshi';
+  final String body = message.notification?.body ?? '';
+  final Map<String, dynamic> data = Map<String, dynamic>.from(message.data);
+
+  if ((data['title'] ?? '').toString().isEmpty) {
+    data['title'] = title;
+  }
+
+  await NotificationService.addNotification(
+    title: title,
+    body: body,
+    data: data,
+  );
+
+  final String payload = _buildNotificationPayload(data);
+
+  await LocalNotificationService.init();
+  await LocalNotificationService.showNotification(
+    title: title,
+    body: body,
+    payload: payload,
+  );
+}
+
+String _buildNotificationPayload(Map<String, dynamic> data) {
+  return Uri(
+    queryParameters: {
+      'type': (data['type'] ?? '').toString(),
+      'title': (data['title'] ?? '').toString(),
+      'collectionHandle': (data['collectionHandle'] ?? '').toString(),
+      'productId': (data['productId'] ?? '').toString(),
+    },
+  ).toString();
+}
 
 Future<void> _navigateFromData(Map<String, dynamic> data) async {
   debugPrint('DEBUG data: $data');
@@ -122,51 +168,6 @@ Future<void> _handleLocalNotificationTap(String? payload) async {
   await _navigateFromData(data);
 }
 
-String _buildNotificationPayload(Map<String, dynamic> data) {
-  return Uri(
-    queryParameters: {
-      'type': (data['type'] ?? '').toString(),
-      'title': (data['title'] ?? '').toString(),
-      'collectionHandle': (data['collectionHandle'] ?? '').toString(),
-      'productId': (data['productId'] ?? '').toString(),
-    },
-  ).toString();
-}
-
-@pragma('vm:entry-point')
-Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-  } catch (e) {
-    debugPrint('Background Firebase init error: $e');
-  }
-
-  final String title = message.notification?.title ?? 'Hijeshi';
-  final String body = message.notification?.body ?? '';
-  final Map<String, dynamic> data = Map<String, dynamic>.from(message.data);
-
-  if ((data['title'] ?? '').toString().isEmpty) {
-    data['title'] = title;
-  }
-
-  await NotificationService.addNotification(
-    title: title,
-    body: body,
-    data: data,
-  );
-
-  final String payload = _buildNotificationPayload(data);
-
-  await LocalNotificationService.init();
-  await LocalNotificationService.showNotification(
-    title: title,
-    body: body,
-    payload: payload,
-  );
-}
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -192,23 +193,26 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  bool _messagingInitialized = false;
-  bool _initialNavigationHandled = false;
   bool _startupInitialized = false;
+  bool _messagingInitialized = false;
+  bool _firebaseListenersAttached = false;
+  bool _initialNavigationHandled = false;
 
   final AppLinks _appLinks = AppLinks();
-  StreamSubscription<Uri>? _sub;
+
+  StreamSubscription<Uri>? _deepLinkSub;
   StreamSubscription<String>? _tokenRefreshSub;
+  StreamSubscription<RemoteMessage>? _foregroundMessageSub;
+  StreamSubscription<RemoteMessage>? _openedAppSub;
 
   @override
   void initState() {
     super.initState();
 
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!_startupInitialized) {
-        _startupInitialized = true;
-        unawaited(_initializeStartupTasks());
-      }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_startupInitialized) return;
+      _startupInitialized = true;
+      unawaited(_initializeStartupTasks());
     });
   }
 
@@ -288,7 +292,7 @@ class _MyAppState extends State<MyApp> {
         await _handleIncomingUri(initialUri);
       }
 
-      _sub = _appLinks.uriLinkStream.listen((Uri uri) async {
+      _deepLinkSub = _appLinks.uriLinkStream.listen((Uri uri) async {
         await _handleIncomingUri(uri);
       });
     } catch (e) {
@@ -322,17 +326,18 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<String?> _waitForApnsToken(FirebaseMessaging messaging) async {
-    String? apnsToken;
+    if (!Platform.isIOS) return null;
 
-    for (int i = 1; i <= 10; i++) {
-      apnsToken = await messaging.getAPNSToken();
+    for (int i = 1; i <= 15; i++) {
+      final String? apnsToken = await messaging.getAPNSToken();
+
       debugPrint('APNs Token attempt $i: $apnsToken');
+      iosPushDebugNotifier.value = 'iOS Push: waiting APNs... $i/15';
 
       if (apnsToken != null && apnsToken.isNotEmpty) {
         return apnsToken;
       }
 
-      iosPushDebugNotifier.value = 'iOS Push: waiting APNs... $i/10';
       await Future.delayed(const Duration(seconds: 1));
     }
 
@@ -352,7 +357,12 @@ class _MyAppState extends State<MyApp> {
         provisional: false,
       );
 
-      debugPrint('Leje e dhënë: ${settings.authorizationStatus}');
+      debugPrint('Notification permission: ${settings.authorizationStatus}');
+
+      if (settings.authorizationStatus == AuthorizationStatus.denied) {
+        iosPushDebugNotifier.value = 'iOS Push: permission denied';
+        return;
+      }
 
       await messaging.setForegroundNotificationPresentationOptions(
         alert: true,
@@ -364,122 +374,50 @@ class _MyAppState extends State<MyApp> {
 
       if (Platform.isIOS) {
         iosPushDebugNotifier.value = 'iOS Push: checking APNs...';
+
         apnsToken = await _waitForApnsToken(messaging);
 
         if (apnsToken == null || apnsToken.isEmpty) {
-          iosPushDebugNotifier.value =
-          'iOS Push: APNs NULL | FCM not requested yet';
+          iosPushDebugNotifier.value = 'iOS Push: APNs NULL';
+          debugPrint('APNs token is NULL. FCM token will not be requested yet.');
           return;
         }
+
+        debugPrint('APNs Token OK: $apnsToken');
       }
 
-      final String? token =
+      final String? fcmToken =
       await messaging.getToken().timeout(const Duration(seconds: 10));
-      debugPrint('FCM Token: $token');
 
-      if (Platform.isIOS) {
-        iosPushDebugNotifier.value =
-        'iOS Push: APNs ${apnsToken == null ? "NULL" : "OK"} | FCM ${token == null ? "NULL" : "OK"}';
+      debugPrint('FCM Token: $fcmToken');
+
+      if (fcmToken == null || fcmToken.isEmpty) {
+        iosPushDebugNotifier.value = Platform.isIOS
+            ? 'iOS Push: APNs OK | FCM NULL'
+            : 'Push: FCM NULL';
+        return;
       }
+
+      await NotificationService.syncTokenForLoggedInUser();
 
       try {
         await messaging.subscribeToTopic('all');
         debugPrint('Subscribed to topic all');
 
         if (Platform.isIOS) {
-          iosPushDebugNotifier.value =
-          'iOS Push: APNs OK | FCM OK | TOPIC OK';
+          iosPushDebugNotifier.value = 'iOS Push: APNs OK | FCM OK | TOPIC OK';
         }
       } catch (e) {
         debugPrint('Subscribe topic error: $e');
 
         if (Platform.isIOS) {
-          iosPushDebugNotifier.value = 'iOS Push: topic error $e';
+          iosPushDebugNotifier.value = 'iOS Push: topic error';
         }
       }
 
-      unawaited(NotificationService.syncTokenForLoggedInUser());
-
-      _tokenRefreshSub = messaging.onTokenRefresh.listen((String newToken) {
-        debugPrint('FCM Token refreshed: $newToken');
-            unawaited(NotificationService.syncTokenForLoggedInUser());
-      });
-
-      FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-        final String title = message.notification?.title ?? 'Hijeshi';
-        final String body = message.notification?.body ?? '';
-        final Map<String, dynamic> data =
-        Map<String, dynamic>.from(message.data);
-
-        debugPrint('Foreground: $title - $body');
-        debugPrint('Foreground data: $data');
-
-        if ((data['title'] ?? '').toString().isEmpty) {
-          data['title'] = title;
-        }
-
-        final String payload = _buildNotificationPayload(data);
-
-        await NotificationService.addNotification(
-          title: title,
-          body: body,
-          data: data,
-        );
-
-        await LocalNotificationService.showNotification(
-          title: title,
-          body: body,
-          payload: payload,
-        );
-      });
-
-      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) async {
-        debugPrint(
-          'OpenedApp: ${message.notification?.title} - ${message.notification?.body}',
-        );
-        debugPrint('OpenedApp data: ${message.data}');
-
-        final Map<String, dynamic> data =
-        Map<String, dynamic>.from(message.data);
-
-        if ((data['title'] ?? '').toString().isEmpty) {
-          data['title'] = message.notification?.title ?? 'Hijeshi';
-        }
-
-        await NotificationService.addNotification(
-          title: message.notification?.title ?? 'Hijeshi',
-          body: message.notification?.body ?? '',
-          data: data,
-        );
-
-        await _navigateFromData(data);
-      });
-
-      final RemoteMessage? initialMessage =
-      await messaging.getInitialMessage().timeout(
-        const Duration(seconds: 5),
-      );
-
-      if (initialMessage != null) {
-        debugPrint(
-          'Terminated->Opened: ${initialMessage.notification?.title} - ${initialMessage.notification?.body}',
-        );
-        debugPrint('Terminated data: ${initialMessage.data}');
-
-        final Map<String, dynamic> data =
-        Map<String, dynamic>.from(initialMessage.data);
-
-        if ((data['title'] ?? '').toString().isEmpty) {
-          data['title'] = initialMessage.notification?.title ?? 'Hijeshi';
-        }
-
-        await NotificationService.addNotification(
-          title: initialMessage.notification?.title ?? 'Hijeshi',
-          body: initialMessage.notification?.body ?? '',
-          data: data,
-        );
-
-        await _navigateFromData(data);
+      if (!_firebaseListenersAttached) {
+        _firebaseListenersAttached = true;
+        _attachFirebaseMessageListeners(messaging);
       }
     } catch (e) {
       debugPrint('setupFirebaseMessaging ERROR: $e');
@@ -487,10 +425,114 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
+  void _attachFirebaseMessageListeners(FirebaseMessaging messaging) {
+    _tokenRefreshSub?.cancel();
+    _foregroundMessageSub?.cancel();
+    _openedAppSub?.cancel();
+
+    _tokenRefreshSub = messaging.onTokenRefresh.listen((String newToken) async {
+      debugPrint('FCM Token refreshed: $newToken');
+      await NotificationService.syncTokenForLoggedInUser();
+
+      if (Platform.isIOS) {
+        iosPushDebugNotifier.value = 'iOS Push: token refreshed';
+      }
+    });
+
+    _foregroundMessageSub =
+        FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
+          final String title = message.notification?.title ?? 'Hijeshi';
+          final String body = message.notification?.body ?? '';
+          final Map<String, dynamic> data = Map<String, dynamic>.from(message.data);
+
+          debugPrint('Foreground: $title - $body');
+          debugPrint('Foreground data: $data');
+
+          if ((data['title'] ?? '').toString().isEmpty) {
+            data['title'] = title;
+          }
+
+          final String payload = _buildNotificationPayload(data);
+
+          await NotificationService.addNotification(
+            title: title,
+            body: body,
+            data: data,
+          );
+
+          await LocalNotificationService.showNotification(
+            title: title,
+            body: body,
+            payload: payload,
+          );
+        });
+
+    _openedAppSub =
+        FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) async {
+          debugPrint(
+            'OpenedApp: ${message.notification?.title} - ${message.notification?.body}',
+          );
+          debugPrint('OpenedApp data: ${message.data}');
+
+          final Map<String, dynamic> data = Map<String, dynamic>.from(message.data);
+
+          if ((data['title'] ?? '').toString().isEmpty) {
+            data['title'] = message.notification?.title ?? 'Hijeshi';
+          }
+
+          await NotificationService.addNotification(
+            title: message.notification?.title ?? 'Hijeshi',
+            body: message.notification?.body ?? '',
+            data: data,
+          );
+
+          await _navigateFromData(data);
+        });
+
+    unawaited(_handleInitialFirebaseMessage(messaging));
+  }
+
+  Future<void> _handleInitialFirebaseMessage(
+      FirebaseMessaging messaging,
+      ) async {
+    try {
+      final RemoteMessage? initialMessage =
+      await messaging.getInitialMessage().timeout(
+        const Duration(seconds: 5),
+      );
+
+      if (initialMessage == null) return;
+
+      debugPrint(
+        'Terminated->Opened: ${initialMessage.notification?.title} - ${initialMessage.notification?.body}',
+      );
+      debugPrint('Terminated data: ${initialMessage.data}');
+
+      final Map<String, dynamic> data =
+      Map<String, dynamic>.from(initialMessage.data);
+
+      if ((data['title'] ?? '').toString().isEmpty) {
+        data['title'] = initialMessage.notification?.title ?? 'Hijeshi';
+      }
+
+      await NotificationService.addNotification(
+        title: initialMessage.notification?.title ?? 'Hijeshi',
+        body: initialMessage.notification?.body ?? '',
+        data: data,
+      );
+
+      await _navigateFromData(data);
+    } catch (e) {
+      debugPrint('getInitialMessage ERROR: $e');
+    }
+  }
+
   @override
   void dispose() {
-    _sub?.cancel();
+    _deepLinkSub?.cancel();
     _tokenRefreshSub?.cancel();
+    _foregroundMessageSub?.cancel();
+    _openedAppSub?.cancel();
     super.dispose();
   }
 

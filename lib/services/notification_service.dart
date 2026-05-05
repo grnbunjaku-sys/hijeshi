@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -64,6 +65,14 @@ class NotificationService {
 
       final String? token = await FirebaseMessaging.instance.getToken();
       if (token == null || token.isEmpty) return;
+
+      final String platform = Platform.isIOS
+          ? 'ios'
+          : Platform.isAndroid
+          ? 'android'
+          : 'unknown';
+
+      debugPrint('Saving FCM token for $platform: $token');
 
       try {
         await UserService.updateFcmToken(
