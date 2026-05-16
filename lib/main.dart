@@ -358,6 +358,7 @@ class _MyAppState extends State<MyApp> {
       );
 
       debugPrint('Notification permission: ${settings.authorizationStatus}');
+      debugPrint('🔥 setupFirebaseMessaging started on ${Platform.isIOS ? "iOS" : "Android"}');
 
       if (settings.authorizationStatus == AuthorizationStatus.denied) {
         iosPushDebugNotifier.value = 'iOS Push: permission denied';
@@ -447,6 +448,7 @@ class _MyAppState extends State<MyApp> {
 
           debugPrint('Foreground: $title - $body');
           debugPrint('Foreground data: $data');
+          debugPrint('🔥 iOS FOREGROUND PUSH RECEIVED');
 
           if ((data['title'] ?? '').toString().isEmpty) {
             data['title'] = title;
