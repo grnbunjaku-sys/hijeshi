@@ -49,12 +49,14 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
   final String payload = _buildNotificationPayload(data);
 
-  await LocalNotificationService.init();
-  await LocalNotificationService.showNotification(
-    title: title,
-    body: body,
-    payload: payload,
-  );
+  if (Platform.isIOS) {
+    await LocalNotificationService.init();
+    await LocalNotificationService.showNotification(
+      title: title,
+      body: body,
+      payload: payload,
+    );
+  }
 }
 
 String _buildNotificationPayload(Map<String, dynamic> data) {
@@ -358,7 +360,9 @@ class _MyAppState extends State<MyApp> {
       );
 
       debugPrint('Notification permission: ${settings.authorizationStatus}');
-      debugPrint('🔥 setupFirebaseMessaging started on ${Platform.isIOS ? "iOS" : "Android"}');
+      debugPrint(
+        '🔥 setupFirebaseMessaging started on ${Platform.isIOS ? "iOS" : "Android"}',
+      );
 
       if (settings.authorizationStatus == AuthorizationStatus.denied) {
         iosPushDebugNotifier.value = 'iOS Push: permission denied';
@@ -444,11 +448,15 @@ class _MyAppState extends State<MyApp> {
         FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
           final String title = message.notification?.title ?? 'Hijeshi';
           final String body = message.notification?.body ?? '';
-          final Map<String, dynamic> data = Map<String, dynamic>.from(message.data);
+          final Map<String, dynamic> data =
+          Map<String, dynamic>.from(message.data);
 
           debugPrint('Foreground: $title - $body');
           debugPrint('Foreground data: $data');
-          debugPrint('🔥 iOS FOREGROUND PUSH RECEIVED');
+
+          if (Platform.isIOS) {
+            debugPrint('🔥 iOS FOREGROUND PUSH RECEIVED');
+          }
 
           if ((data['title'] ?? '').toString().isEmpty) {
             data['title'] = title;
@@ -462,11 +470,13 @@ class _MyAppState extends State<MyApp> {
             data: data,
           );
 
-          await LocalNotificationService.showNotification(
-            title: title,
-            body: body,
-            payload: payload,
-          );
+          if (Platform.isIOS) {
+            await LocalNotificationService.showNotification(
+              title: title,
+              body: body,
+              payload: payload,
+            );
+          }
         });
 
     _openedAppSub =
@@ -476,7 +486,8 @@ class _MyAppState extends State<MyApp> {
           );
           debugPrint('OpenedApp data: ${message.data}');
 
-          final Map<String, dynamic> data = Map<String, dynamic>.from(message.data);
+          final Map<String, dynamic> data =
+          Map<String, dynamic>.from(message.data);
 
           if ((data['title'] ?? '').toString().isEmpty) {
             data['title'] = message.notification?.title ?? 'Hijeshi';
@@ -558,46 +569,7 @@ class _MyAppState extends State<MyApp> {
         ),
       ),
       builder: (context, child) {
-        return Stack(
-          children: [
-            child ?? const SizedBox.shrink(),
-            if (Platform.isIOS)
-              Positioned(
-                left: 12,
-                right: 12,
-                bottom: 28,
-                child: SafeArea(
-                  child: ValueListenableBuilder<String>(
-                    valueListenable: iosPushDebugNotifier,
-                    builder: (context, text, _) {
-                      return Material(
-                        color: Colors.transparent,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.86),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Text(
-                            text,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-          ],
-        );
+        return child ?? const SizedBox.shrink();
       },
       home: const MainScreen(),
     );
