@@ -34,6 +34,7 @@ class ShopifyService {
     images(first: $_imagesLimit) {
       edges {
         node {
+          id
           url
         }
       }
@@ -44,6 +45,10 @@ class ShopifyService {
           id
           title
           availableForSale
+          image {
+            id
+            url
+          }
           price {
             amount
           }

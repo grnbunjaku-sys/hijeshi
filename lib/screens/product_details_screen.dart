@@ -55,6 +55,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     final normalized = _normalizeOptionName(name);
     return normalized == 'color' ||
         normalized == 'colour' ||
+        normalized == 'colours' ||
         normalized == 'shade' ||
         normalized == 'ngjyra';
   }
@@ -261,18 +262,120 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     });
   }
 
+  String _normalizeImageUrl(String url) {
+    String value = url.trim();
+
+    final queryIndex = value.indexOf('?');
+    if (queryIndex != -1) {
+      value = value.substring(0, queryIndex);
+    }
+
+    return value;
+  }
+
+  String? _getImageIdFromNode(dynamic node) {
+    try {
+      final id = node?['id']?.toString().trim();
+      if (id != null && id.isNotEmpty) return id;
+    } catch (_) {}
+
+    return null;
+  }
+
+  String? _getImageUrlFromNode(dynamic node) {
+    try {
+      final url = node?['url']?.toString().trim();
+      if (url != null && url.isNotEmpty) return url;
+    } catch (_) {}
+
+    try {
+      final src = node?['src']?.toString().trim();
+      if (src != null && src.isNotEmpty) return src;
+    } catch (_) {}
+
+    return null;
+  }
+
+  Set<String> _getVariantImageIds() {
+    final ids = <String>{};
+
+    try {
+      for (final variant in _variantNodes) {
+        final image = variant['image'];
+        final id = _getImageIdFromNode(image);
+
+        if (id != null && id.isNotEmpty) {
+          ids.add(id);
+        }
+      }
+    } catch (_) {}
+
+    return ids;
+  }
+
+  Set<String> _getVariantImageUrls() {
+    final urls = <String>{};
+
+    try {
+      for (final variant in _variantNodes) {
+        final imageUrl = _getVariantImageUrl(variant);
+
+        if (imageUrl != null && imageUrl.trim().isNotEmpty) {
+          urls.add(_normalizeImageUrl(imageUrl));
+        }
+      }
+    } catch (_) {}
+
+    return urls;
+  }
+
+  bool _isVariantImageNode(dynamic node) {
+    final variantImageIds = _getVariantImageIds();
+    final variantImageUrls = _getVariantImageUrls();
+
+    final id = _getImageIdFromNode(node);
+    if (id != null && variantImageIds.contains(id)) {
+      return true;
+    }
+
+    final url = _getImageUrlFromNode(node);
+    if (url != null && variantImageUrls.contains(_normalizeImageUrl(url))) {
+      return true;
+    }
+
+    return false;
+  }
+
   String? _getImage(dynamic product) {
     try {
-      if (product['image'] != null) {
-        return product['image'].toString();
-      }
+      final imageEdges = product['images']?['edges'] as List<dynamic>? ?? [];
 
-      if (product['images'] != null &&
-          product['images']['edges'] != null &&
-          product['images']['edges'].isNotEmpty &&
-          product['images']['edges'][0]['node'] != null &&
-          product['images']['edges'][0]['node']['url'] != null) {
-        return product['images']['edges'][0]['node']['url'].toString();
+      for (final edge in imageEdges) {
+        final node = edge['node'];
+        final url = _getImageUrlFromNode(node);
+
+        if (url == null || url.trim().isEmpty) continue;
+        if (_isVariantImageNode(node)) continue;
+
+        return url.trim();
+      }
+    } catch (_) {}
+
+    try {
+      final imageEdges = product['images']?['edges'] as List<dynamic>? ?? [];
+
+      if (imageEdges.isNotEmpty) {
+        final url = _getImageUrlFromNode(imageEdges.first['node']);
+        if (url != null && url.trim().isNotEmpty) {
+          return url.trim();
+        }
+      }
+    } catch (_) {}
+
+    try {
+      if (product['image'] != null &&
+          product['image'].toString().trim().isNotEmpty) {
+        return product['image'].toString().trim();
       }
     } catch (_) {}
 
@@ -283,18 +386,37 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     final images = <String>[];
 
     try {
-      if (product['image'] != null &&
-          product['image'].toString().trim().isNotEmpty) {
-        images.add(product['image'].toString());
+      final imageEdges = product['images']?['edges'] as List<dynamic>? ?? [];
+
+      for (final edge in imageEdges) {
+        final node = edge['node'];
+        final url = _getImageUrlFromNode(node);
+
+        if (url == null || url.trim().isEmpty) continue;
+        if (_isVariantImageNode(node)) continue;
+
+        final cleanUrl = url.trim();
+
+        if (!images.contains(cleanUrl)) {
+          images.add(cleanUrl);
+        }
       }
     } catch (_) {}
 
+    if (images.isNotEmpty) {
+      return images;
+    }
+
     try {
       final imageEdges = product['images']?['edges'] as List<dynamic>? ?? [];
+
       for (final edge in imageEdges) {
-        final url = edge['node']?['url']?.toString();
-        if (url != null && url.isNotEmpty && !images.contains(url)) {
-          images.add(url);
+        final url = _getImageUrlFromNode(edge['node']);
+
+        if (url != null &&
+            url.trim().isNotEmpty &&
+            !images.contains(url.trim())) {
+          images.add(url.trim());
         }
       }
     } catch (_) {}
@@ -427,11 +549,62 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     return colorMap[normalized];
   }
 
+  String? _getVariantImageUrl(dynamic variant) {
+    try {
+      final image = variant['image'];
+
+      if (image is String && image.trim().isNotEmpty) {
+        return image.trim();
+      }
+
+      if (image != null && image['url'] != null) {
+        final url = image['url'].toString().trim();
+        if (url.isNotEmpty) return url;
+      }
+
+      if (image != null && image['src'] != null) {
+        final src = image['src'].toString().trim();
+        if (src.isNotEmpty) return src;
+      }
+
+      if (variant['imageUrl'] != null &&
+          variant['imageUrl'].toString().trim().isNotEmpty) {
+        return variant['imageUrl'].toString().trim();
+      }
+    } catch (_) {}
+
+    return null;
+  }
+
+  String? _getVariantImageByOptionValue(
+      String optionName,
+      String optionValue,
+      ) {
+    try {
+      for (final variant in _variantNodes) {
+        final value = _getOptionValueByName(variant, optionName);
+
+        if (value == optionValue) {
+          final imageUrl = _getVariantImageUrl(variant);
+          if (imageUrl != null && imageUrl.isNotEmpty) {
+            return imageUrl;
+          }
+        }
+      }
+    } catch (_) {}
+
+    return null;
+  }
+
   bool _shouldUseColorSwatches(String? optionName, List<String> values) {
     if (values.isEmpty) return false;
 
     if (optionName != null && _isSizeOption(optionName)) {
       return false;
+    }
+
+    if (optionName != null && _isColorOption(optionName)) {
+      return true;
     }
 
     int recognizedColors = 0;
@@ -441,62 +614,129 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
       }
     }
 
-    if (optionName != null && _isColorOption(optionName)) {
-      return recognizedColors == values.length;
-    }
-
     return recognizedColors == values.length && values.length <= 12;
   }
 
-  Widget _buildColorSwatch({
+  Widget _buildImageSwatch({
     required String label,
+    required String? imageUrl,
     required bool selected,
     required VoidCallback onTap,
     bool disabled = false,
   }) {
-    final swatchColor = _getColorFromLabel(label) ?? const Color(0xFFFDF2F8);
-    final isLightColor = swatchColor.computeLuminance() > 0.82;
-    const selectedBorder = Color(0xFFEC4899);
-    const normalBorder = Color(0xFFE5E7EB);
-
     return GestureDetector(
       onTap: disabled ? null : onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-        width: 58,
-        height: 58,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: swatchColor,
-          border: Border.all(
-            color: disabled
-                ? Colors.grey.shade300
-                : selected
-                ? selectedBorder
-                : isLightColor
-                ? const Color(0xFFD1D5DB)
-                : normalBorder,
-            width: selected ? 3 : 1.5,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: selected ? 0.10 : 0.05),
-              blurRadius: selected ? 12 : 8,
-              offset: const Offset(0, 4),
+      child: SizedBox(
+        width: 82,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              width: 66,
+              height: 66,
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white,
+                border: Border.all(
+                  color: disabled
+                      ? Colors.grey.shade300
+                      : selected
+                      ? const Color(0xFFEC4899)
+                      : const Color(0xFFFBCFE8),
+                  width: selected ? 3 : 1.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(
+                      alpha: selected ? 0.11 : 0.05,
+                    ),
+                    blurRadius: selected ? 12 : 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Stack(
+                children: [
+                  ClipOval(
+                    child: imageUrl != null && imageUrl.isNotEmpty
+                        ? Image.network(
+                      imageUrl,
+                      width: double.infinity,
+                      height: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) {
+                        return _buildFallbackColorCircle(label);
+                      },
+                    )
+                        : _buildFallbackColorCircle(label),
+                  ),
+                  if (disabled)
+                    Positioned.fill(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withValues(alpha: 0.55),
+                        ),
+                      ),
+                    ),
+                  if (selected)
+                    Positioned.fill(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.black.withValues(alpha: 0.16),
+                        ),
+                        child: const Center(
+                          child: Icon(
+                            Icons.check,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color: disabled
+                    ? Colors.grey
+                    : selected
+                    ? const Color(0xFFBE185D)
+                    : Colors.grey.shade700,
+              ),
             ),
           ],
         ),
-        child: selected
-            ? Center(
-          child: Icon(
-            Icons.check,
-            color: isLightColor ? Colors.black87 : Colors.white,
-            size: 22,
-          ),
-        )
-            : null,
       ),
+    );
+  }
+
+  Widget _buildFallbackColorCircle(String label) {
+    final swatchColor = _getColorFromLabel(label) ?? const Color(0xFFFCE7F3);
+
+    return Container(
+      color: swatchColor,
+      child: _getColorFromLabel(label) == null
+          ? const Center(
+        child: Icon(
+          Icons.image_outlined,
+          color: Color(0xFFBE185D),
+          size: 22,
+        ),
+      )
+          : null,
     );
   }
 
@@ -626,46 +866,32 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
 
   Widget _buildOptionSection({
     required String title,
+    required String optionName,
     required List<String> values,
     required String? selectedValue,
     required ValueChanged<String> onSelected,
     required bool useColorSwatches,
   }) {
     if (useColorSwatches) {
-      return Wrap(
-        spacing: 14,
-        runSpacing: 14,
-        children: values.map((value) {
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildColorSwatch(
-                label: value,
-                selected: selectedValue == value,
-                onTap: () => onSelected(value),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: 70,
-                child: Text(
-                  value,
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: selectedValue == value
-                        ? FontWeight.w700
-                        : FontWeight.w500,
-                    color: selectedValue == value
-                        ? const Color(0xFFBE185D)
-                        : Colors.grey.shade700,
-                  ),
-                ),
-              ),
-            ],
-          );
-        }).toList(),
+      return SizedBox(
+        height: 112,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          itemCount: values.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 14),
+          itemBuilder: (context, index) {
+            final value = values[index];
+            final imageUrl = _getVariantImageByOptionValue(optionName, value);
+
+            return _buildImageSwatch(
+              label: value,
+              imageUrl: imageUrl,
+              selected: selectedValue == value,
+              onTap: () => onSelected(value),
+            );
+          },
+        ),
       );
     }
 
@@ -1111,6 +1337,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                             title: _getOptionDisplayTitle(firstOptionName),
                             child: _buildOptionSection(
                               title: _getOptionDisplayTitle(firstOptionName),
+                              optionName: firstOptionName,
                               values: firstOptionValues,
                               selectedValue: selectedFirstOptionValue,
                               onSelected: _onFirstOptionSelected,
@@ -1125,6 +1352,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                             title: _getOptionDisplayTitle(secondOptionName),
                             child: _buildOptionSection(
                               title: _getOptionDisplayTitle(secondOptionName),
+                              optionName: secondOptionName,
                               values: secondOptionValues,
                               selectedValue: selectedSecondOptionValue,
                               onSelected: _onSecondOptionSelected,
