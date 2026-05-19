@@ -119,7 +119,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
 
     final password = passwordController.text.trim();
-    passwordController.dispose();
 
     if (shouldDelete != true) return;
 
