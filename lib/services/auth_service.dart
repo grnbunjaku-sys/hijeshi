@@ -150,6 +150,50 @@ class AuthService {
     }
   }
 
+  static Future<Map<String, dynamic>> deleteAccount({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      final response = await http.delete(
+        Uri.parse("$baseUrl/delete-account"),
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: jsonEncode({
+          "email": email,
+          "password": password,
+        }),
+      );
+
+      print("DELETE ACCOUNT STATUS: ${response.statusCode}");
+      print("DELETE ACCOUNT BODY: ${response.body}");
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        if (data['success'] == true) {
+          await logout();
+        }
+
+        return data;
+      }
+
+      return {
+        "success": false,
+        "message": data['message'] ?? "Delete account failed",
+        "errors": data['errors'],
+      };
+    } catch (e) {
+      print("DELETE ACCOUNT ERROR: $e");
+      return {
+        "success": false,
+        "message": "Gabim në server: $e",
+      };
+    }
+  }
+
   static Future<void> _saveUserLocally({
     required String name,
     required String email,

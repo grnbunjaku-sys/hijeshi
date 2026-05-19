@@ -17,6 +17,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoading = true;
   bool _isLoggedIn = false;
+  bool _isDeletingAccount = false;
   String _userName = '';
   String _userEmail = '';
 
@@ -70,6 +71,109 @@ class _ProfileScreenState extends State<ProfileScreen> {
         backgroundColor: Colors.green,
       ),
     );
+  }
+
+  Future<void> _deleteAccount() async {
+    if (_userEmail.isEmpty || _isDeletingAccount) return;
+
+    final passwordController = TextEditingController();
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete Account'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'This will permanently delete your account. This action cannot be undone.',
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: passwordController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Enter your password',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.redAccent,
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    final password = passwordController.text.trim();
+    passwordController.dispose();
+
+    if (shouldDelete != true) return;
+
+    if (password.isEmpty) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter your password.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isDeletingAccount = true;
+    });
+
+    final result = await AuthService.deleteAccount(
+      email: _userEmail,
+      password: password,
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _isDeletingAccount = false;
+    });
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+    if (result['success'] == true) {
+      setState(() {
+        _isLoggedIn = false;
+        _userName = '';
+        _userEmail = '';
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Account deleted successfully.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message'] ?? 'Failed to delete account.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
   }
 
   Future<void> _openLogin() async {
@@ -453,6 +557,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
             title: 'About Hijeshi',
             url: _aboutHijeshiUrl,
           ),
+        ),
+        _buildMenuTile(
+          icon: Icons.delete_forever_outlined,
+          title: _isDeletingAccount ? 'Deleting Account...' : 'Delete Account',
+          subtitle: 'Permanently delete your Hijeshi account',
+          isDanger: true,
+          onTap: _isDeletingAccount ? () {} : _deleteAccount,
         ),
         _buildMenuTile(
           icon: Icons.logout_rounded,
