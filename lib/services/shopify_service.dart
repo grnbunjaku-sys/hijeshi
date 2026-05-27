@@ -6,10 +6,11 @@ class ShopifyService {
   final String storeDomain = "mtk0r1-1y.myshopify.com";
   final String storefrontAccessToken = "156e2297b6cb9cc8448d83d284e331a0";
 
-  static const int _productsLimit = 12;
+  static const int _productsPageSize = 40;
+  static const int _homeProductsLimit = 12;
   static const int _imagesLimit = 10;
   static const int _variantsLimit = 50;
-  static const int _collectionsLimit = 80;
+  static const int _collectionsPageSize = 100;
   static const Duration _timeoutDuration = Duration(seconds: 20);
 
   Uri get _graphqlUrl =>
@@ -61,12 +62,18 @@ class ShopifyService {
     }
   ''';
 
-  Future<Map<String, dynamic>> _postGraphQL(String query) async {
+  Future<Map<String, dynamic>> _postGraphQL(
+      String query, {
+        Map<String, dynamic>? variables,
+      }) async {
     final response = await http
         .post(
       _graphqlUrl,
       headers: _headers,
-      body: jsonEncode({"query": query}),
+      body: jsonEncode({
+        "query": query,
+        if (variables != null) "variables": variables,
+      }),
     )
         .timeout(_timeoutDuration);
 
@@ -84,79 +91,149 @@ class ShopifyService {
     return json;
   }
 
-  Future<List<dynamic>> fetchProducts({String? collectionHandle}) async {
-    final String query;
+  Future<Map<String, dynamic>> fetchProductsPage({
+    String? collectionHandle,
+    String? cursor,
+    int first = _productsPageSize,
+  }) async {
+    final bool hasCollection =
+        collectionHandle != null && collectionHandle.isNotEmpty;
 
-    if (collectionHandle != null && collectionHandle.isNotEmpty) {
-      final safeHandle = collectionHandle.replaceAll('"', '\\"');
-
-      query = '''
-      {
-        collection(handle: "$safeHandle") {
-          title
-          handle
-          products(first: $_productsLimit) {
-            edges {
-              node {
-                $_productFields
-              }
-            }
-          }
-        }
-      }
-      ''';
-    } else {
-      query = '''
-      {
-        products(first: $_productsLimit) {
+    final String query = hasCollection
+        ? '''
+    query FetchCollectionProductsPage(\$handle: String!, \$first: Int!, \$after: String) {
+      collection(handle: \$handle) {
+        products(first: \$first, after: \$after) {
           edges {
+            cursor
             node {
               $_productFields
             }
           }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
         }
       }
-      ''';
     }
-
-    final json = await _postGraphQL(query);
-
-    if (collectionHandle != null && collectionHandle.isNotEmpty) {
-      final collection = json["data"]?["collection"] as Map<String, dynamic>?;
-
-      if (collection == null) {
-        return [];
-      }
-
-      return (collection["products"]?["edges"] as List<dynamic>?) ?? [];
-    }
-
-    return (json["data"]?["products"]?["edges"] as List<dynamic>?) ?? [];
-  }
-
-  Future<List<Map<String, String>>> fetchCollections() async {
-    final query = '''
-    {
-      collections(first: $_collectionsLimit) {
+    '''
+        : '''
+    query FetchProductsPage(\$first: Int!, \$after: String) {
+      products(first: \$first, after: \$after) {
         edges {
+          cursor
           node {
-            title
-            handle
-            image {
-              url
-            }
+            $_productFields
           }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
         }
       }
     }
     ''';
 
-    final json = await _postGraphQL(query);
+    final json = await _postGraphQL(
+      query,
+      variables: {
+        "first": first,
+        "after": cursor,
+        if (hasCollection) "handle": collectionHandle,
+      },
+    );
 
-    final List<dynamic> edges =
-        (json["data"]?["collections"]?["edges"] as List<dynamic>?) ?? [];
+    final Map<String, dynamic>? connection = hasCollection
+        ? (json["data"]?["collection"]?["products"] as Map<String, dynamic>?)
+        : (json["data"]?["products"] as Map<String, dynamic>?);
 
-    final collections = edges
+    return {
+      "edges": (connection?["edges"] as List<dynamic>?) ?? <dynamic>[],
+      "pageInfo": connection?["pageInfo"] ?? <String, dynamic>{},
+    };
+  }
+
+  Future<List<dynamic>> fetchProducts({String? collectionHandle}) async {
+    final List<dynamic> allEdges = [];
+    String? cursor;
+    bool hasNextPage = true;
+
+    while (hasNextPage) {
+      final page = await fetchProductsPage(
+        collectionHandle: collectionHandle,
+        cursor: cursor,
+        first: 250,
+      );
+
+      final edges = (page["edges"] as List<dynamic>?) ?? <dynamic>[];
+      allEdges.addAll(edges);
+
+      final pageInfo = page["pageInfo"] as Map<String, dynamic>?;
+
+      hasNextPage = pageInfo?["hasNextPage"] == true;
+      cursor = pageInfo?["endCursor"]?.toString();
+
+      if (cursor == null || cursor.isEmpty) {
+        hasNextPage = false;
+      }
+    }
+
+    return allEdges;
+  }
+
+  Future<List<Map<String, String>>> fetchCollections() async {
+    final List<dynamic> allEdges = [];
+    String? cursor;
+    bool hasNextPage = true;
+
+    while (hasNextPage) {
+      final query = '''
+      query FetchCollections(\$first: Int!, \$after: String) {
+        collections(first: \$first, after: \$after) {
+          edges {
+            cursor
+            node {
+              title
+              handle
+              image {
+                url
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+      ''';
+
+      final json = await _postGraphQL(
+        query,
+        variables: {
+          "first": _collectionsPageSize,
+          "after": cursor,
+        },
+      );
+
+      final connection = json["data"]?["collections"] as Map<String, dynamic>?;
+      if (connection == null) break;
+
+      final edges = (connection["edges"] as List<dynamic>?) ?? <dynamic>[];
+      allEdges.addAll(edges);
+
+      final pageInfo = connection["pageInfo"] as Map<String, dynamic>?;
+
+      hasNextPage = pageInfo?["hasNextPage"] == true;
+      cursor = pageInfo?["endCursor"]?.toString();
+
+      if (cursor == null || cursor.isEmpty) {
+        hasNextPage = false;
+      }
+    }
+
+    final collections = allEdges
         .map((edge) => _mapSimpleCollection(edge["node"]))
         .whereType<Map<String, String>>()
         .toList();
@@ -168,11 +245,9 @@ class ShopifyService {
   }
 
   Future<Map<String, dynamic>?> fetchCollectionByHandle(String handle) async {
-    final safeHandle = handle.replaceAll('"', '\\"');
-
     final query = '''
-    {
-      collection(handle: "$safeHandle") {
+    query FetchCollectionByHandle(\$handle: String!) {
+      collection(handle: \$handle) {
         title
         handle
         image {
@@ -182,7 +257,10 @@ class ShopifyService {
     }
     ''';
 
-    final json = await _postGraphQL(query);
+    final json = await _postGraphQL(
+      query,
+      variables: {"handle": handle},
+    );
 
     final collection = json["data"]?["collection"];
     if (collection == null) return null;
@@ -203,30 +281,23 @@ class ShopifyService {
     const parfumesHandle = 'parfumes';
     const justDroppedHandle = 'just-dropped';
 
+    final allCollectionsWithAllItem = await fetchCollections();
+    final allCollections = allCollectionsWithAllItem
+        .where((collection) => (collection["handle"] ?? "").isNotEmpty)
+        .toList();
+
     final query = '''
     {
-      collections(first: $_collectionsLimit) {
-        edges {
-          node {
-            title
-            handle
-            image {
-              url
-            }
-          }
-        }
-      }
-
       bestSellerA: collection(handle: "best-seller") {
         title
         handle
         image {
           url
         }
-        products(first: $_productsLimit) {
+        products(first: 1) {
           edges {
             node {
-              $_productFields
+              id
             }
           }
         }
@@ -238,10 +309,10 @@ class ShopifyService {
         image {
           url
         }
-        products(first: $_productsLimit) {
+        products(first: 1) {
           edges {
             node {
-              $_productFields
+              id
             }
           }
         }
@@ -253,10 +324,10 @@ class ShopifyService {
         image {
           url
         }
-        products(first: $_productsLimit) {
+        products(first: 1) {
           edges {
             node {
-              $_productFields
+              id
             }
           }
         }
@@ -268,10 +339,10 @@ class ShopifyService {
         image {
           url
         }
-        products(first: $_productsLimit) {
+        products(first: 1) {
           edges {
             node {
-              $_productFields
+              id
             }
           }
         }
@@ -283,13 +354,6 @@ class ShopifyService {
         image {
           url
         }
-        products(first: $_productsLimit) {
-          edges {
-            node {
-              $_productFields
-            }
-          }
-        }
       }
 
       parfumes: collection(handle: "$parfumesHandle") {
@@ -298,27 +362,12 @@ class ShopifyService {
         image {
           url
         }
-        products(first: $_productsLimit) {
-          edges {
-            node {
-              $_productFields
-            }
-          }
-        }
       }
     }
     ''';
 
     final json = await _postGraphQL(query);
     final data = json["data"] as Map<String, dynamic>? ?? {};
-
-    final List<dynamic> allCollectionEdges =
-        (data["collections"]?["edges"] as List<dynamic>?) ?? [];
-
-    final allCollections = allCollectionEdges
-        .map((edge) => _mapSimpleCollection(edge["node"]))
-        .whereType<Map<String, String>>()
-        .toList();
 
     const desiredCategoryOrder = [
       makeupHandle,
@@ -343,21 +392,29 @@ class ShopifyService {
         .map((collection) => (collection['handle'] ?? '').toLowerCase())
         .toSet();
 
-    final bestSellerCollection = _firstValidCollectionWithProducts([
+    Map<String, dynamic>? bestSellerCollection =
+    _firstValidCollectionWithProducts([
       data["bestSellerA"],
       data["bestSellerB"],
       data["bestSellerC"],
       data["bestSellerD"],
     ]);
 
+    if (bestSellerCollection != null) {
+      bestSellerCollection =
+      await _attachLimitedProductsToCollection(bestSellerCollection);
+    }
+
     final bestSellerHandle =
     (bestSellerCollection?["handle"] ?? "").toString().toLowerCase();
 
-    final justDroppedCollection =
-    _mapCollectionNode(data["justDropped"], includeProducts: true);
+    final justDroppedCollection = await _attachLimitedProductsToCollection(
+      _mapCollectionNode(data["justDropped"]),
+    );
 
-    final parfumesCollection =
-    _mapCollectionNode(data["parfumes"], includeProducts: true);
+    final parfumesCollection = await _attachLimitedProductsToCollection(
+      _mapCollectionNode(data["parfumes"]),
+    );
 
     final excludedHandles = <String>{
       ...categoryHandles,
@@ -428,6 +485,41 @@ class ShopifyService {
     };
   }
 
+  Future<Map<String, dynamic>?> _attachLimitedProductsToCollection(
+      Map<String, dynamic>? collection,
+      ) async {
+    if (collection == null) return null;
+
+    final handle = collection["handle"]?.toString() ?? "";
+    if (handle.isEmpty) return collection;
+
+    final productsPage = await fetchProductsPage(
+      collectionHandle: handle,
+      first: _homeProductsLimit,
+    );
+
+    return {
+      ...collection,
+      "products": productsPage["edges"] ?? <dynamic>[],
+    };
+  }
+
+  Future<Map<String, dynamic>?> _attachAllProductsToCollection(
+      Map<String, dynamic>? collection,
+      ) async {
+    if (collection == null) return null;
+
+    final handle = collection["handle"]?.toString() ?? "";
+    if (handle.isEmpty) return collection;
+
+    final products = await fetchProducts(collectionHandle: handle);
+
+    return {
+      ...collection,
+      "products": products,
+    };
+  }
+
   Map<String, String>? _mapSimpleCollection(dynamic rawNode) {
     if (rawNode == null || rawNode is! Map<String, dynamic>) return null;
 
@@ -484,11 +576,9 @@ class ShopifyService {
   }
 
   Future<Map<String, dynamic>?> fetchProductById(String productId) async {
-    final safeProductId = productId.replaceAll('"', '\\"');
-
     final query = '''
-    {
-      node(id: "$safeProductId") {
+    query FetchProductById(\$id: ID!) {
+      node(id: \$id) {
         ... on Product {
           $_productFields
         }
@@ -496,7 +586,10 @@ class ShopifyService {
     }
     ''';
 
-    final json = await _postGraphQL(query);
+    final json = await _postGraphQL(
+      query,
+      variables: {"id": productId},
+    );
 
     final product = json["data"]?["node"];
 

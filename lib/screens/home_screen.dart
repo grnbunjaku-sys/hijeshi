@@ -26,8 +26,11 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final ShopifyService _shopifyService = ShopifyService();
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
 
   Timer? _debounce;
+
+  static const int _pageSize = 40;
 
   List<dynamic> allProducts = [];
   List<dynamic> filteredProducts = [];
@@ -36,7 +39,11 @@ class _HomeScreenState extends State<HomeScreen> {
   ];
 
   bool isLoading = true;
+  bool isLoadingMore = false;
+  bool hasNextPage = true;
   bool isLoadingCollections = true;
+
+  String? _endCursor;
   String selectedSort = 'default';
 
   final List<String> sortOptions = [
@@ -51,11 +58,13 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
 
+    _scrollController.addListener(_onScroll);
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(_loadFavorites());
       unawaited(_loadCollections());
-      unawaited(_loadProducts());
+      unawaited(_loadInitialProducts());
     });
 
     _searchController.addListener(() {
@@ -77,8 +86,22 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _debounce?.cancel();
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    if (isLoading || isLoadingMore || !hasNextPage) return;
+
+    final position = _scrollController.position;
+    final threshold = position.maxScrollExtent - 700;
+
+    if (position.pixels >= threshold) {
+      unawaited(_loadMoreProducts());
+    }
   }
 
   Future<void> _loadCollections() async {
@@ -102,22 +125,34 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _loadProducts() async {
+  Future<void> _loadInitialProducts() async {
     if (!mounted) return;
 
     setState(() {
       isLoading = true;
+      isLoadingMore = false;
+      hasNextPage = true;
+      _endCursor = null;
+      allProducts = [];
+      filteredProducts = [];
     });
 
     try {
-      final products = await _shopifyService.fetchProducts(
+      final page = await _shopifyService.fetchProductsPage(
         collectionHandle: widget.collectionHandle,
+        first: _pageSize,
       );
+
+      final edges = (page['edges'] as List<dynamic>?) ?? <dynamic>[];
+      final pageInfo =
+          (page['pageInfo'] as Map<String, dynamic>?) ?? <String, dynamic>{};
 
       if (!mounted) return;
 
       setState(() {
-        allProducts = products;
+        allProducts = edges;
+        hasNextPage = pageInfo['hasNextPage'] == true;
+        _endCursor = pageInfo['endCursor']?.toString();
         isLoading = false;
       });
 
@@ -130,6 +165,46 @@ class _HomeScreenState extends State<HomeScreen> {
       });
 
       debugPrint('Error loading products: $e');
+    }
+  }
+
+  Future<void> _loadMoreProducts() async {
+    if (!mounted) return;
+    if (isLoadingMore || !hasNextPage) return;
+
+    setState(() {
+      isLoadingMore = true;
+    });
+
+    try {
+      final page = await _shopifyService.fetchProductsPage(
+        collectionHandle: widget.collectionHandle,
+        cursor: _endCursor,
+        first: _pageSize,
+      );
+
+      final edges = (page['edges'] as List<dynamic>?) ?? <dynamic>[];
+      final pageInfo =
+          (page['pageInfo'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+
+      if (!mounted) return;
+
+      setState(() {
+        allProducts.addAll(edges);
+        hasNextPage = pageInfo['hasNextPage'] == true;
+        _endCursor = pageInfo['endCursor']?.toString();
+        isLoadingMore = false;
+      });
+
+      _applyFilters();
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        isLoadingMore = false;
+      });
+
+      debugPrint('Error loading more products: $e');
     }
   }
 
@@ -215,17 +290,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _getProductImage(Map<String, dynamic> product) {
     final imageEdges = product['images']?['edges'] as List? ?? [];
-
     if (imageEdges.isEmpty) return '';
-
     return imageEdges[0]['node']['url']?.toString() ?? '';
   }
 
   String _getProductPriceString(Map<String, dynamic> product) {
     final variantEdges = product['variants']?['edges'] as List? ?? [];
-
     if (variantEdges.isEmpty) return '0.00';
-
     return variantEdges[0]['node']['price']?['amount']?.toString() ?? '0.00';
   }
 
@@ -262,8 +333,7 @@ class _HomeScreenState extends State<HomeScreen> {
         products.sort((a, b) {
           final productA = a['node'] as Map<String, dynamic>;
           final productB = b['node'] as Map<String, dynamic>;
-          return _getProductPrice(productA)
-              .compareTo(_getProductPrice(productB));
+          return _getProductPrice(productA).compareTo(_getProductPrice(productB));
         });
         break;
 
@@ -271,8 +341,7 @@ class _HomeScreenState extends State<HomeScreen> {
         products.sort((a, b) {
           final productA = a['node'] as Map<String, dynamic>;
           final productB = b['node'] as Map<String, dynamic>;
-          return _getProductPrice(productB)
-              .compareTo(_getProductPrice(productA));
+          return _getProductPrice(productB).compareTo(_getProductPrice(productA));
         });
         break;
 
@@ -749,6 +818,27 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildBottomLoader() {
+    if (!isLoadingMore) {
+      return const SliverToBoxAdapter(
+        child: SizedBox(height: 24),
+      );
+    }
+
+    return const SliverToBoxAdapter(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(0, 8, 0, 28),
+        child: Center(
+          child: SizedBox(
+            height: 26,
+            width: 26,
+            child: CircularProgressIndicator(strokeWidth: 2.4),
+          ),
+        ),
+      ),
+    );
+  }
+
   List<Widget> _buildHeaderSlivers(String currentHandle) {
     return [
       SliverToBoxAdapter(
@@ -771,7 +861,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                '${filteredProducts.length} products available',
+                '${filteredProducts.length} products loaded',
                 style: TextStyle(
                   fontSize: 14,
                   color: Colors.grey.shade700,
@@ -839,9 +929,10 @@ class _HomeScreenState extends State<HomeScreen> {
             : RefreshIndicator(
           onRefresh: () async {
             await _loadCollections();
-            await _loadProducts();
+            await _loadInitialProducts();
           },
           child: CustomScrollView(
+            controller: _scrollController,
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               ..._buildHeaderSlivers(currentHandle),
@@ -849,12 +940,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 _buildEmptyState()
               else
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
                   sliver: SliverGrid(
                     delegate: SliverChildBuilderDelegate(
                           (context, index) {
-                        final edge = filteredProducts[index]
-                        as Map<String, dynamic>;
+                        final edge =
+                        filteredProducts[index] as Map<String, dynamic>;
                         final product =
                         edge['node'] as Map<String, dynamic>;
 
@@ -871,6 +962,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ),
+              _buildBottomLoader(),
             ],
           ),
         ),
